@@ -3,85 +3,166 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hunter Map</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
   <style>
-    body { font-family: sans-serif; margin: 0; padding: 0; }
-    #map { height: 100vh; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+    }
+    #map {
+      width: 100vw;
+      height: 100vh;
+    }
   </style>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // ---------------------------------------------------------
+    // FIREBASE CONFIG
+    // ---------------------------------------------------------
+    const firebaseConfig = {
+      apiKey: "...",
+      authDomain: "manhunt-e6f98.firebaseapp.com",
+      databaseURL: "https://manhunt-e6f98-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "manhunt-e6f98",
+      storageBucket: "manhunt-e6f98.appspot.com",
+      messagingSenderId: "...",
+      appId: "..."
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ---------------------------------------------------------
+    // MAP + MARKERS
+    // ---------------------------------------------------------
+    let map;
+    const runnerMarkers = {};
+    const hunterMarkers = {};
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 46.8, lng: 7.15 },
+        zoom: 13,
+        mapId: "DEMO_MAP_ID"
+      });
+    }
+
+    window.onload = () => {
+      initMap();
+      loadEvent();
+    };
+
+    // ---------------------------------------------------------
+    // LOAD EVENT ID FROM URL
+    // ---------------------------------------------------------
+    function loadEvent() {
+      const params = new URLSearchParams(window.location.search);
+      const eventId = params.get("event");
+
+      if (!eventId) {
+        alert("No event specified. Use ?event=event123");
+        return;
+      }
+
+      subscribeToRunners(eventId);
+      subscribeToHunters(eventId);
+    }
+
+    // ---------------------------------------------------------
+    // SUBSCRIBE TO RUNNERS
+    // ---------------------------------------------------------
+    function subscribeToRunners(eventId) {
+      const runnersRef = ref(db, `events/${eventId}/runners`);
+
+      onValue(runnersRef, snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        for (const id in data) {
+          const r = data[id];
+          const latest = r.latest;
+
+          if (!latest) continue;
+          if (r.status === "hidden" || r.status === "out") {
+            if (runnerMarkers[id]) {
+              runnerMarkers[id].setMap(null);
+              delete runnerMarkers[id];
+            }
+            continue;
+          }
+
+          const pos = { lat: latest.lat, lng: latest.lng };
+
+          if (!runnerMarkers[id]) {
+            // Runner marker (existing color)
+            runnerMarkers[id] = new google.maps.Marker({
+              position: pos,
+              map,
+              title: id,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#FF0000",
+                fillOpacity: 1,
+                strokeColor: "#FFFFFF",
+                strokeWeight: 2
+              }
+            });
+          } else {
+            runnerMarkers[id].setPosition(pos);
+          }
+        }
+      });
+    }
+
+    // ---------------------------------------------------------
+    // SUBSCRIBE TO HUNTERS
+    // ---------------------------------------------------------
+    function subscribeToHunters(eventId) {
+      const huntersRef = ref(db, `events/${eventId}/hunters`);
+
+      onValue(huntersRef, snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        for (const id in data) {
+          const h = data[id];
+          const latest = h.latest;
+
+          if (!latest) continue;
+
+          const pos = { lat: latest.lat, lng: latest.lng };
+
+          if (!hunterMarkers[id]) {
+            // Hunter marker (solid black)
+            hunterMarkers[id] = new google.maps.Marker({
+              position: pos,
+              map,
+              title: id,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 10,
+                fillColor: "#000000",
+                fillOpacity: 1,
+                strokeColor: "#FFFFFF",
+                strokeWeight: 2
+              }
+            });
+          } else {
+            hunterMarkers[id].setPosition(pos);
+          }
+        }
+      });
+    }
+  </script>
 </head>
 
 <body>
-
-<div id="map"></div>
-
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
-
-  const firebaseConfig = {
-    apiKey: "...",
-    authDomain: "manhunt-e6f98.firebaseapp.com",
-    databaseURL: "https://manhunt-e6f98-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "manhunt-e6f98",
-    storageBucket: "manhunt-e6f98.appspot.com",
-    messagingSenderId: "...",
-    appId: "..."
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
-
-  const params = new URLSearchParams(location.search);
-  const eventId = params.get("event") || "testEvent";
-
-  const map = L.map('map').setView([47.05, 8.30], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-  const markers = {};
-
-  // Remove a marker safely
-  function removeMarker(id) {
-    if (markers[id]) {
-      map.removeLayer(markers[id]);
-      delete markers[id];
-    }
-  }
-
-  // Main listener for runner updates
-  onValue(ref(db, `events/${eventId}/runners`), snapshot => {
-    const data = snapshot.val();
-    if (!data) return;
-
-    for (const id in data) {
-      const runner = data[id];
-      const status = runner.status || "active";
-
-      // Hidden/out runners → no marker
-      if (status !== "active") {
-        removeMarker(id);
-        continue;
-      }
-
-      if (!runner.latest) {
-        removeMarker(id);
-        continue;
-      }
-
-      const { lat, lng, timestamp } = runner.latest;
-      const label = `${id} (updated ${Math.round((Date.now() - timestamp)/60000)} min ago)`;
-
-      // Create or update marker
-      if (!markers[id]) {
-        markers[id] = L.marker([lat, lng]).addTo(map).bindPopup(label);
-      } else {
-        markers[id].setLatLng([lat, lng]);
-        markers[id].setPopupContent(label);
-      }
-    }
-  });
-</script>
-
+  <div id="map"></div>
 </body>
 </html>
