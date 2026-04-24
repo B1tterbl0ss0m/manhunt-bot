@@ -15,7 +15,6 @@ admin.initializeApp({
 
 const db = admin.database();
 
-
 // ---------------------------------------------------------
 // EXPRESS SETUP
 // ---------------------------------------------------------
@@ -124,29 +123,21 @@ async function sendMessage(chatId, text) {
 
 
 // ---------------------------------------------------------
-// SYNCED PUSH LOOP (every 20 minutes at :20, :40, :00)
+// SYNCED PUSH LOOP — NOW EVERY 1 MINUTE
 // ---------------------------------------------------------
 function scheduleSyncedPush() {
   const now = new Date();
-  const m = now.getMinutes();
   const s = now.getSeconds();
   const ms = now.getMilliseconds();
 
-  let nextMinute;
-  if (m < 20) nextMinute = 20;
-  else if (m < 40) nextMinute = 40;
-  else nextMinute = 60;
-
-  const msUntil =
-    (nextMinute - m) * 60000 -
-    s * 1000 -
-    ms;
+  // Next minute boundary
+  const msUntil = (60 - s) * 1000 - ms;
 
   console.log("Next sync in", msUntil / 1000, "seconds");
 
   setTimeout(() => {
     pushAllLocations();
-    setInterval(pushAllLocations, 20 * 60 * 1000);
+    setInterval(pushAllLocations, 60 * 1000); // every 1 minute
   }, msUntil);
 }
 
