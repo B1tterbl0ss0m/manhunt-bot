@@ -99,4 +99,71 @@ async function sendMessage(chatId, text) {
       body: JSON.stringify({ chat_id: chatId, text })
     });
   } catch (err) {
-    console.error
+    console.error("Error sending Telegram message:", err);
+  }
+}
+
+
+// ---------------------------------------------------------
+// SYNCED PUSH LOOP
+// ---------------------------------------------------------
+function scheduleSyncedPush() {
+  const now = new Date();
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+  const ms = now.getMilliseconds();
+
+  let nextMinute;
+  if (m < 20) nextMinute = 20;
+  else if (m < 40) nextMinute = 40;
+  else nextMinute = 60;
+
+  const msUntil =
+    (nextMinute - m) * 60000 -
+    s * 1000 -
+    ms;
+
+  console.log("Next sync in", msUntil / 1000, "seconds");
+
+  setTimeout(() => {
+    pushAllLocations();
+    setInterval(pushAllLocations, 20 * 60 * 1000);
+  }, msUntil);
+}
+
+async function pushAllLocations() {
+  console.log("Pushing synced locations…");
+
+  for (const runnerId in latestLocations) {
+    const data = latestLocations[runnerId];
+    if (!data.lat || !data.lng) continue;
+
+    const eventId = data.eventId || "defaultEvent";
+
+    const payload = {
+      lat: data.lat,
+      lng: data.lng,
+      timestamp: Date.now()
+    };
+
+    console.log(`Writing to Firebase for ${runnerId}:`, payload);
+
+    try {
+      await db.ref(`events/${eventId}/runners/${runnerId}/latest`).set(payload);
+      await db.ref(`events/${eventId}/runners/${runnerId}/history`).push(payload);
+    } catch (err) {
+      console.error("Firebase write error:", err);
+    }
+  }
+}
+
+
+// Start the synced scheduler
+scheduleSyncedPush();
+
+
+// ---------------------------------------------------------
+// START SERVER (Render-compatible)
+// ---------------------------------------------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Bot backend running on port", PORT));
