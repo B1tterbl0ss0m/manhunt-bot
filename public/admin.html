@@ -3,13 +3,40 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Event Dashboard</title>
+
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th, td { padding: 8px; border-bottom: 1px solid #ccc; }
-    select { padding: 5px; }
+    body { 
+      font-family: sans-serif; 
+      padding: 20px; 
+    }
+
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      margin-top: 20px; 
+    }
+
+    th, td { 
+      padding: 8px; 
+      border-bottom: 1px solid #ccc; 
+    }
+
+    /* Column alignment (Option C) */
+    th:nth-child(1), td:nth-child(1) {
+      text-align: left;   /* Runner ID */
+    }
+
+    th:nth-child(2), td:nth-child(2),
+    th:nth-child(3), td:nth-child(3) {
+      text-align: center; /* Last Update + Status */
+    }
+
+    select {
+      padding: 5px;
+    }
   </style>
 </head>
+
 <body>
 
 <h2>Event Dashboard</h2>
@@ -65,7 +92,14 @@
 
       if (!data) return;
 
-      for (const id in data) {
+      // Convert to array and sort by runnerId (runner1, runner2, ...)
+      const sorted = Object.keys(data).sort((a, b) => {
+        const numA = parseInt(a.replace(/\D/g, "")) || 0;
+        const numB = parseInt(b.replace(/\D/g, "")) || 0;
+        return numA - numB;
+      });
+
+      for (const id of sorted) {
         const runner = data[id];
         const latest = runner.latest;
         const status = runner.status || "active";
