@@ -3,7 +3,9 @@ import bodyParser from "body-parser";
 import fetch from "node-fetch";
 import admin from "firebase-admin";
 
-// --- FIREBASE INIT ---
+// ---------------------------------------------------------
+// FIREBASE INITIALIZATION
+// ---------------------------------------------------------
 admin.initializeApp({
   credential: admin.credential.applicationDefault(),
   databaseURL: "https://manhunt-e6f98-default-rtdb.europe-west1.firebasedatabase.app"
@@ -11,7 +13,9 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// --- EXPRESS SETUP ---
+// ---------------------------------------------------------
+// EXPRESS SETUP
+// ---------------------------------------------------------
 const app = express();
 app.use(bodyParser.json());
 
@@ -21,13 +25,17 @@ const latestLocations = {};
 
 
 // ---------------------------------------------------------
-// TELEGRAM WEBHOOK
+// TELEGRAM WEBHOOK HANDLER
 // ---------------------------------------------------------
 app.post("/webhook", async (req, res) => {
-  console.log("Incoming update:", JSON.stringify(req.body, null, 2));
   const update = req.body;
 
+  // Log only update_id to avoid spam
+  console.log("Incoming update:", update.update_id);
+
+  // -----------------------------------------------------
   // 1. Handle /start <runnerId>?event=<eventId>
+  // -----------------------------------------------------
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
     const parts = update.message.text.split(" ");
@@ -58,10 +66,17 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // 2. Handle live location updates
-  const loc = update.message?.location;
+  // -----------------------------------------------------
+  // 2. Handle live location updates (message or edited_message)
+  // -----------------------------------------------------
+  const loc =
+    update.message?.location ||
+    update.edited_message?.location;
+
   if (loc) {
-    const chatId = update.message.chat.id;
+    const chatId =
+      update.message?.chat?.id ||
+      update.edited_message?.chat?.id;
 
     // Find runner by chatId
     const runnerId = Object.keys(latestLocations).find(
@@ -82,12 +97,13 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // Default response
   res.sendStatus(200);
 });
 
 
 // ---------------------------------------------------------
-// SEND MESSAGE HELPER
+// TELEGRAM SEND MESSAGE HELPER
 // ---------------------------------------------------------
 async function sendMessage(chatId, text) {
   const token = process.env.BOT_TOKEN;
@@ -105,7 +121,7 @@ async function sendMessage(chatId, text) {
 
 
 // ---------------------------------------------------------
-// SYNCED PUSH LOOP
+// SYNCED PUSH LOOP (every 20 minutes at :20, :40, :00)
 // ---------------------------------------------------------
 function scheduleSyncedPush() {
   const now = new Date();
