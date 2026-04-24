@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 import admin from "firebase-admin";
 
 // ---------------------------------------------------------
-// FIREBASE INITIALIZATION (Render-compatible)
+// FIREBASE INITIALIZATION
 // ---------------------------------------------------------
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
@@ -21,8 +21,8 @@ const db = admin.database();
 const app = express();
 app.use(bodyParser.json());
 
-// Store latest locations in memory
-// Structure: { runnerId: { chatId, eventId, lat, lng, timestamp, hasPushedOnce, liveMode } }
+// Memory store:
+// runnerId: { chatId, eventId, lat, lng, timestamp, hasPushedOnce, liveMode }
 const latestLocations = {};
 
 
@@ -35,7 +35,7 @@ app.post("/webhook", async (req, res) => {
   console.log("Incoming update:", update.update_id);
 
   // -----------------------------------------------------
-  // 1. Handle /start <runnerId>?event=<eventId>
+  // /start <runnerId>?event=<eventId>
   // -----------------------------------------------------
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
@@ -70,7 +70,7 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // 2. Handle /live (enable real-time mode)
+  // /live → enable real-time mode
   // -----------------------------------------------------
   if (update.message?.text === "/live") {
     const chatId = update.message.chat.id;
@@ -89,13 +89,13 @@ app.post("/webhook", async (req, res) => {
     await db.ref(`events/${latestLocations[runnerId].eventId}/runners/${runnerId}`)
       .update({ liveMode: true });
 
-    await sendMessage(chatId, "Live mode enabled — your location will update in real time.");
+    await sendMessage(chatId, "Live mode enabled — real-time updates active.");
 
     return res.sendStatus(200);
   }
 
   // -----------------------------------------------------
-  // 3. Handle /end (disable real-time mode)
+  // /end → disable real-time mode
   // -----------------------------------------------------
   if (update.message?.text === "/end") {
     const chatId = update.message.chat.id;
@@ -120,7 +120,7 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // 4. Handle live location updates (message or edited_message)
+  // Handle live location updates
   // -----------------------------------------------------
   const loc =
     update.message?.location ||
@@ -149,21 +149,21 @@ app.post("/webhook", async (req, res) => {
     console.log(`Updated location for ${runnerId}:`, runner);
 
     // -------------------------------------------------
-    // IMMEDIATE FIRST WRITE
+    // Immediate first write (latest + history)
     // -------------------------------------------------
     if (!runner.hasPushedOnce) {
       console.log(`Immediate first push for ${runnerId}`);
-      await writeToFirebase(runnerId, runner);
+      await writeLatestAndHistory(runnerId, runner);
       runner.hasPushedOnce = true;
       return res.sendStatus(200);
     }
 
     // -------------------------------------------------
-    // REAL-TIME MODE: write every update
+    // REAL-TIME MODE → latest only
     // -------------------------------------------------
     if (runner.liveMode) {
-      console.log(`Real-time push for ${runnerId}`);
-      await writeToFirebase(runnerId, runner);
+      console.log(`Real-time push (latest only) for ${runnerId}`);
+      await writeLatestOnly(runnerId, runner);
       return res.sendStatus(200);
     }
 
@@ -176,7 +176,7 @@ app.post("/webhook", async (req, res) => {
 
 
 // ---------------------------------------------------------
-// TELEGRAM SEND MESSAGE HELPER
+// TELEGRAM SEND MESSAGE
 // ---------------------------------------------------------
 async function sendMessage(chatId, text) {
   const token = process.env.BOT_TOKEN;
@@ -194,16 +194,36 @@ async function sendMessage(chatId, text) {
 
 
 // ---------------------------------------------------------
-// FIREBASE WRITE HELPER
+// FIREBASE WRITE HELPERS
 // ---------------------------------------------------------
-async function writeToFirebase(runnerId, data) {
-  const eventId = data.eventId || "defaultEvent";
 
-  const payload = {
+// Unique timestamp ensures Firebase triggers updates
+function makePayload(data) {
+  return {
     lat: data.lat,
     lng: data.lng,
-    timestamp: Date.now()
+    timestamp: Date.now() + Math.random()
   };
+}
+
+// Write ONLY to latest
+async function writeLatestOnly(runnerId, data) {
+  const eventId = data.eventId;
+
+  const payload = makePayload(data);
+
+  try {
+    await db.ref(`events/${eventId}/runners/${runnerId}/latest`).set(payload);
+  } catch (err) {
+    console.error("Firebase write error:", err);
+  }
+}
+
+// Write to latest AND history
+async function writeLatestAndHistory(runnerId, data) {
+  const eventId = data.eventId;
+
+  const payload = makePayload(data);
 
   try {
     await db.ref(`events/${eventId}/runners/${runnerId}/latest`).set(payload);
@@ -233,16 +253,15 @@ function scheduleSyncedPush() {
 }
 
 async function pushAllLocations() {
-  console.log("Pushing synced locations…");
+  console.log("Pushing synced interval updates…");
 
   for (const runnerId in latestLocations) {
     const data = latestLocations[runnerId];
 
     if (!data.lat || !data.lng) continue;
-    if (data.liveMode) continue; // real-time mode handles itself
 
-    console.log(`Interval push for ${runnerId}`);
-    await writeToFirebase(runnerId, data);
+    console.log(`Interval push (latest + history) for ${runnerId}`);
+    await writeLatestAndHistory(runnerId, data);
   }
 }
 
