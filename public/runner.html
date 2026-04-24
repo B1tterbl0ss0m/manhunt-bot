@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Runner Tracking</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #statusBox { margin-top: 20px; padding: 10px; background: #f0f0f0; border-radius: 8px; }
+    .label { font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<h2>Tracking Active</h2>
+<p>Your location is being sent every 20 minutes, synced to :00, :20, :40.</p>
+
+<div id="statusBox">
+  <div><span class="label">Last update:</span> <span id="lastUpdate">—</span></div>
+  <div><span class="label">Next update in:</span> <span id="countdown">—</span></div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getDatabase, ref, set, push } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "...",
+    authDomain: "manhunt-e6f98.firebaseapp.com",
+    databaseURL: "https://manhunt-e6f98-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "manhunt-e6f98",
+    storageBucket: "manhunt-e6f98.appspot.com",
+    messagingSenderId: "...",
+    appId: "..."
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  const params = new URLSearchParams(location.search);
+  const runnerId = params.get("id") || "testRunner";
+  const eventId = params.get("event") || "testEvent";
+
+  const lastUpdateEl = document.getElementById("lastUpdate");
+  const countdownEl = document.getElementById("countdown");
+
+  let nextSyncTime = null;
+
+  // Format time nicely
+  function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  // --- SEND LOCATION ---
+  function sendLocation() {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const data = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        timestamp: Date.now()
+      };
+
+      // Update latest position
+      set(ref(db, `events/${eventId}/runners/${runnerId}/latest`), data);
+
+      // Add to history
+      push(ref(db, `events/${eventId}/runners/${runnerId}/history`), data);
+
+      // Update UI
+      lastUpdateEl.textContent = formatTime(new Date());
+    });
+  }
+
+  // Send immediately on page load
+  sendLocation();
+
+  // --- SYNCED INTERVAL LOGIC ---
+  function scheduleNextSync() {
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const seconds = now.getSeconds();
+    const ms = now.getMilliseconds();
+
+    // Determine next sync minute (0, 20, 40)
+    let nextMinute;
+    if (minutes < 20) nextMinute = 20;
+    else if (minutes < 40) nextMinute = 40;
+    else nextMinute = 60;
+
+    const minutesUntil = nextMinute - minutes;
+    const msUntil =
+      minutesUntil * 60 * 1000 -
+      seconds * 1000 -
+      ms;
+
+    nextSyncTime = new Date(Date.now() + msUntil);
+
+    setTimeout(() => {
+      sendLocation();
+      nextSyncTime = new Date(Date.now() + 20 * 60 * 1000);
+      setInterval(() => {
+        sendLocation();
+        nextSyncTime = new Date(Date.now() + 20 * 60 * 1000);
+      }, 20 * 60 * 1000);
+    }, msUntil);
+  }
+
+  scheduleNextSync();
+
+  // --- COUNTDOWN TIMER ---
+  setInterval(() => {
+    if (!nextSyncTime) return;
+
+    const diff = nextSyncTime - Date.now();
+    if (diff <= 0) {
+      countdownEl.textContent = "Sending now…";
+      return;
+    }
+
+    const mins = Math.floor(diff / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
+
+    countdownEl.textContent =
+      mins.toString().padStart(2, "0") + ":" +
+      secs.toString().padStart(2, "0");
+
+  }, 500);
+
+</script>
+</body>
+</html>

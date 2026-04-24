@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Event Dashboard</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 8px; border-bottom: 1px solid #ccc; }
+    select { padding: 5px; }
+  </style>
+</head>
+<body>
+
+<h2>Event Dashboard</h2>
+<p>Manage runner statuses for this event.</p>
+
+<label>Event ID: </label>
+<input id="eventInput" placeholder="event123" />
+<button id="loadBtn">Load Event</button>
+
+<table id="runnerTable" style="display:none;">
+  <thead>
+    <tr>
+      <th>Runner ID</th>
+      <th>Last Update</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody id="runnerBody"></tbody>
+</table>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "...",
+    authDomain: "manhunt-e6f98.firebaseapp.com",
+    databaseURL: "https://manhunt-e6f98-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "manhunt-e6f98",
+    storageBucket: "manhunt-e6f98.appspot.com",
+    messagingSenderId: "...",
+    appId: "..."
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  const loadBtn = document.getElementById("loadBtn");
+  const eventInput = document.getElementById("eventInput");
+  const table = document.getElementById("runnerTable");
+  const tbody = document.getElementById("runnerBody");
+
+  loadBtn.onclick = () => {
+    const eventId = eventInput.value.trim();
+    if (!eventId) return alert("Enter an event ID");
+
+    const runnersRef = ref(db, `events/${eventId}/runners`);
+
+    onValue(runnersRef, snapshot => {
+      const data = snapshot.val();
+      tbody.innerHTML = "";
+      table.style.display = "table";
+
+      if (!data) return;
+
+      for (const id in data) {
+        const runner = data[id];
+        const latest = runner.latest;
+        const status = runner.status || "active";
+
+        const lastUpdate = latest
+          ? Math.round((Date.now() - latest.timestamp) / 60000) + " min ago"
+          : "No data";
+
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+          <td>${id}</td>
+          <td>${lastUpdate}</td>
+          <td>
+            <select data-id="${id}">
+              <option value="active" ${status === "active" ? "selected" : ""}>active</option>
+              <option value="hidden" ${status === "hidden" ? "selected" : ""}>hidden</option>
+              <option value="out" ${status === "out" ? "selected" : ""}>out</option>
+            </select>
+          </td>
+        `;
+
+        tbody.appendChild(row);
+      }
+
+      // Attach change listeners
+      document.querySelectorAll("select").forEach(sel => {
+        sel.onchange = () => {
+          const runnerId = sel.dataset.id;
+          const newStatus = sel.value;
+
+          update(ref(db, `events/${eventId}/runners/${runnerId}`), {
+            status: newStatus
+          });
+        };
+      });
+    });
+  };
+</script>
+
+</body>
+</html>
