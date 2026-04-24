@@ -4,14 +4,17 @@ import fetch from "node-fetch";
 import admin from "firebase-admin";
 
 // ---------------------------------------------------------
-// FIREBASE INITIALIZATION
+// FIREBASE INITIALIZATION (Render-compatible)
 // ---------------------------------------------------------
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
 admin.initializeApp({
-  credential: admin.credential.applicationDefault(),
+  credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://manhunt-e6f98-default-rtdb.europe-west1.firebasedatabase.app"
 });
 
 const db = admin.database();
+
 
 // ---------------------------------------------------------
 // EXPRESS SETUP
