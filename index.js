@@ -22,8 +22,8 @@ const app = express();
 app.use(bodyParser.json());
 
 // Memory store:
-// runnerId: { chatId, eventId, lat, lng, timestamp, hasPushedOnce, liveMode }
-// hunterId: { chatId, eventId, lat, lng, timestamp }
+// runners: { chatId, eventId, lat, lng, timestamp, hasPushedOnce, liveMode }
+// hunters: { chatId, eventId, lat, lng, timestamp }
 const runners = {};
 const hunters = {};
 
@@ -51,6 +51,9 @@ app.post("/webhook", async (req, res) => {
     const param = parts[1];
     const [id, eventId] = param.split("?event=");
 
+    // ---------------------------
+    // RUNNER REGISTRATION
+    // ---------------------------
     if (id.startsWith("runner")) {
       runners[id] = {
         chatId,
@@ -62,10 +65,17 @@ app.post("/webhook", async (req, res) => {
         liveMode: false
       };
 
-      await sendMessage(chatId, `Runner registered: ${id}\nEvent: ${eventId}`);
+      await sendMessage(
+        chatId,
+        `Runner registered: ${id}\nEvent: ${eventId}\nNow share your LIVE location.`
+      );
+
       return res.sendStatus(200);
     }
 
+    // ---------------------------
+    // HUNTER REGISTRATION
+    // ---------------------------
     if (id.startsWith("hunter")) {
       hunters[id] = {
         chatId,
@@ -75,7 +85,12 @@ app.post("/webhook", async (req, res) => {
         timestamp: null
       };
 
-      await sendMessage(chatId, `Hunter registered: ${id}\nEvent: ${eventId}`);
+      // Send personalized map link
+      await sendMessage(
+        chatId,
+        `Hunter registered: ${id}\nEvent: ${eventId}\n\nYour map:\nhttps://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}`
+      );
+
       return res.sendStatus(200);
     }
 
@@ -84,7 +99,53 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // /live and /end apply ONLY to runners
+  // /stop → remove runner or hunter
+  // -----------------------------------------------------
+  if (update.message?.text === "/stop") {
+    const chatId = update.message.chat.id;
+
+    // Check if this chatId belongs to a runner
+    const runnerId = Object.keys(runners).find(
+      id => runners[id].chatId === chatId
+    );
+
+    if (runnerId) {
+      const eventId = runners[runnerId].eventId;
+
+      // Remove from Firebase
+      await db.ref(`events/${eventId}/runners/${runnerId}`).remove();
+
+      // Remove from memory
+      delete runners[runnerId];
+
+      await sendMessage(chatId, `Runner ${runnerId} removed from event ${eventId}.`);
+      return res.sendStatus(200);
+    }
+
+    // Check if this chatId belongs to a hunter
+    const hunterId = Object.keys(hunters).find(
+      id => hunters[id].chatId === chatId
+    );
+
+    if (hunterId) {
+      const eventId = hunters[hunterId].eventId;
+
+      // Remove from Firebase
+      await db.ref(`events/${eventId}/hunters/${hunterId}`).remove();
+
+      // Remove from memory
+      delete hunters[hunterId];
+
+      await sendMessage(chatId, `Hunter ${hunterId} removed from event ${eventId}.`);
+      return res.sendStatus(200);
+    }
+
+    await sendMessage(chatId, "You are not registered as a runner or hunter.");
+    return res.sendStatus(200);
+  }
+
+  // -----------------------------------------------------
+  // /live → enable real-time mode (runners only)
   // -----------------------------------------------------
   if (update.message?.text === "/live") {
     const chatId = update.message.chat.id;
@@ -107,6 +168,9 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // -----------------------------------------------------
+  // /end → disable real-time mode (runners only)
+  // -----------------------------------------------------
   if (update.message?.text === "/end") {
     const chatId = update.message.chat.id;
 
@@ -141,7 +205,7 @@ app.post("/webhook", async (req, res) => {
       update.edited_message?.chat?.id;
 
     // ---------------------------
-    // Is this a hunter?
+    // HUNTER LOCATION UPDATE
     // ---------------------------
     const hunterId = Object.keys(hunters).find(
       id => hunters[id].chatId === chatId
@@ -160,7 +224,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     // ---------------------------
-    // Is this a runner?
+    // RUNNER LOCATION UPDATE
     // ---------------------------
     const runnerId = Object.keys(runners).find(
       id => runners[id].chatId === chatId
@@ -176,7 +240,7 @@ app.post("/webhook", async (req, res) => {
     r.lng = loc.longitude;
     r.timestamp = Date.now();
 
-    // First write
+    // First write → latest + history
     if (!r.hasPushedOnce) {
       await writeRunnerLatestAndHistory(runnerId, r);
       r.hasPushedOnce = true;
