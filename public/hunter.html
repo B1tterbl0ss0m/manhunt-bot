@@ -11,7 +11,8 @@
     body { font-family: sans-serif; margin: 0; padding: 0; }
     #map { height: 100vh; }
 
-    .yellow-runner {
+    /* Runner markers */
+    .runner-yellow {
       width: 26px;
       height: 26px;
       background: #FFD500;
@@ -24,18 +25,33 @@
       font-size: 14px;
     }
 
-    .hunter-red {
-      width: 16px;
-      height: 16px;
+    .runner-red {
+      width: 26px;
+      height: 26px;
       background: red;
+      border-radius: 50%;
+      border: 2px solid #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+      color: white;
+    }
+
+    /* Hunter markers */
+    .hunter-lightblue {
+      width: 18px;
+      height: 18px;
+      background: #66B2FF;
       border-radius: 50%;
       border: 2px solid white;
     }
 
-    .hunter-blue {
-      width: 18px;
-      height: 18px;
-      background: blue;
+    .hunter-darkblue {
+      width: 20px;
+      height: 20px;
+      background: #0050FF;
       border-radius: 50%;
       border: 2px solid white;
     }
@@ -90,7 +106,7 @@
   }
 
   // ---------------------------------------------------------
-  // RUNNERS (YELLOW WITH NUMBER)
+  // RUNNERS (YELLOW OR RED IF LIVE MODE)
   // ---------------------------------------------------------
   onValue(ref(db, `events/${eventId}/runners`), snapshot => {
     const data = snapshot.val() || {};
@@ -114,24 +130,37 @@
 
       const { lat, lng } = runner.latest;
       const number = id.replace("runner", "");
+      const isLive = runner.liveMode === true;
+
+      const html = isLive
+        ? `<div class="runner-red">${number}</div>`
+        : `<div class="runner-yellow">${number}</div>`;
 
       if (!runnerMarkers[id]) {
         runnerMarkers[id] = L.marker([lat, lng], {
           icon: L.divIcon({
             className: "",
-            html: `<div class="yellow-runner">${number}</div>`,
+            html,
             iconSize: [26, 26],
             iconAnchor: [13, 13]
           })
         }).addTo(map);
       } else {
         runnerMarkers[id].setLatLng([lat, lng]);
+        runnerMarkers[id].setIcon(
+          L.divIcon({
+            className: "",
+            html,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+          })
+        );
       }
     }
   });
 
   // ---------------------------------------------------------
-  // HUNTERS (RED, EXCEPT SELF = BLUE)
+  // HUNTERS (LIGHT BLUE OR DARK BLUE IF SELF)
   // ---------------------------------------------------------
   onValue(ref(db, `events/${eventId}/hunters`), snapshot => {
     const data = snapshot.val() || {};
@@ -156,21 +185,29 @@
       const { lat, lng } = latest;
       const isMe = (id === myHunterId);
 
-      const iconHtml = isMe
-        ? `<div class="hunter-blue"></div>`
-        : `<div class="hunter-red"></div>`;
+      const html = isMe
+        ? `<div class="hunter-darkblue"></div>`
+        : `<div class="hunter-lightblue"></div>`;
 
       if (!hunterMarkers[id]) {
         hunterMarkers[id] = L.marker([lat, lng], {
           icon: L.divIcon({
             className: "",
-            html: iconHtml,
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
+            html,
+            iconSize: isMe ? [20, 20] : [18, 18],
+            iconAnchor: isMe ? [10, 10] : [9, 9]
           })
         }).addTo(map);
       } else {
         hunterMarkers[id].setLatLng([lat, lng]);
+        hunterMarkers[id].setIcon(
+          L.divIcon({
+            className: "",
+            html,
+            iconSize: isMe ? [20, 20] : [18, 18],
+            iconAnchor: isMe ? [10, 10] : [9, 9]
+          })
+        );
       }
     }
   });

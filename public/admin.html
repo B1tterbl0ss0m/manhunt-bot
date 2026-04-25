@@ -10,6 +10,10 @@
       padding: 20px; 
     }
 
+    h2 {
+      margin-bottom: 5px;
+    }
+
     table { 
       width: 100%; 
       border-collapse: collapse; 
@@ -21,18 +25,36 @@
       border-bottom: 1px solid #ccc; 
     }
 
-    /* Column alignment (Option C) */
     th:nth-child(1), td:nth-child(1) {
-      text-align: left;   /* Runner ID */
+      text-align: left;
     }
 
     th:nth-child(2), td:nth-child(2),
-    th:nth-child(3), td:nth-child(3) {
-      text-align: center; /* Last Update + Status */
+    th:nth-child(3), td:nth-child(3),
+    th:nth-child(4), td:nth-child(4) {
+      text-align: center;
     }
 
     select {
       padding: 5px;
+    }
+
+    button {
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+
+    /* Runner row colors */
+    .row-live {
+      background: #ffb3b3; /* readable light red */
+    }
+
+    .row-hidden {
+      background: #d9ecff; /* light blue */
+    }
+
+    .row-out {
+      background: #e0e0e0; /* grey */
     }
   </style>
 </head>
@@ -40,21 +62,34 @@
 <body>
 
 <h2>Event Dashboard</h2>
-<p>Manage runner statuses for this event.</p>
+<p>Manage runner statuses, speedhunt pings, and monitor hunters.</p>
 
 <label>Event ID: </label>
-<input id="eventInput" placeholder="event123" />
+<input id="eventInput" />
 <button id="loadBtn">Load Event</button>
 
+<!-- RUNNER TABLE -->
 <table id="runnerTable" style="display:none;">
   <thead>
     <tr>
       <th>Runner ID</th>
       <th>Last Update</th>
       <th>Status</th>
+      <th>Speedhunt</th>
     </tr>
   </thead>
   <tbody id="runnerBody"></tbody>
+</table>
+
+<!-- HUNTER TABLE -->
+<table id="hunterTable" style="display:none;">
+  <thead>
+    <tr>
+      <th>Hunter ID</th>
+      <th>Last Update</th>
+    </tr>
+  </thead>
+  <tbody id="hunterBody"></tbody>
 </table>
 
 <script type="module">
@@ -76,23 +111,44 @@
 
   const loadBtn = document.getElementById("loadBtn");
   const eventInput = document.getElementById("eventInput");
-  const table = document.getElementById("runnerTable");
-  const tbody = document.getElementById("runnerBody");
+
+  const runnerTable = document.getElementById("runnerTable");
+  const runnerBody = document.getElementById("runnerBody");
+
+  const hunterTable = document.getElementById("hunterTable");
+  const hunterBody = document.getElementById("hunterBody");
+
+  // ---------------------------------------------------------
+  // AUTO-LOAD testEvent ON PAGE OPEN
+  // ---------------------------------------------------------
+  window.onload = () => {
+    eventInput.value = "testEvent";
+    loadEvent("testEvent");
+  };
 
   loadBtn.onclick = () => {
-    const eventId = eventInput.value.trim();
-    if (!eventId) return alert("Enter an event ID");
+    const eventId = eventInput.value.trim() || "testEvent";
+    loadEvent(eventId);
+  };
 
+  function loadEvent(eventId) {
+    loadRunners(eventId);
+    loadHunters(eventId);
+  }
+
+  // ---------------------------------------------------------
+  // LOAD RUNNERS
+  // ---------------------------------------------------------
+  function loadRunners(eventId) {
     const runnersRef = ref(db, `events/${eventId}/runners`);
 
     onValue(runnersRef, snapshot => {
       const data = snapshot.val();
-      tbody.innerHTML = "";
-      table.style.display = "table";
+      runnerBody.innerHTML = "";
+      runnerTable.style.display = "table";
 
       if (!data) return;
 
-      // Convert to array and sort by runnerId (runner1, runner2, ...)
       const sorted = Object.keys(data).sort((a, b) => {
         const numA = parseInt(a.replace(/\D/g, "")) || 0;
         const numB = parseInt(b.replace(/\D/g, "")) || 0;
@@ -103,6 +159,7 @@
         const runner = data[id];
         const latest = runner.latest;
         const status = runner.status || "active";
+        const live = runner.liveMode === true;
 
         const lastUpdate = latest
           ? Math.round((Date.now() - latest.timestamp) / 60000) + " min ago"
@@ -110,9 +167,18 @@
 
         const row = document.createElement("tr");
 
+        // Row color logic
+        if (live) {
+          row.classList.add("row-live");
+        } else if (status === "hidden") {
+          row.classList.add("row-hidden");
+        } else if (status === "out") {
+          row.classList.add("row-out");
+        }
+
         row.innerHTML = `
           <td>${id}</td>
-          <td>${lastUpdate}</td>
+          <td>${lastUpdate}${live ? " (LIVE)" : ""}</td>
           <td>
             <select data-id="${id}">
               <option value="active" ${status === "active" ? "selected" : ""}>active</option>
@@ -120,12 +186,15 @@
               <option value="out" ${status === "out" ? "selected" : ""}>out</option>
             </select>
           </td>
+          <td>
+            <button class="pingBtn" data-id="${id}">Speedhunt Ping</button>
+          </td>
         `;
 
-        tbody.appendChild(row);
+        runnerBody.appendChild(row);
       }
 
-      // Attach change listeners
+      // Status change listeners
       document.querySelectorAll("select").forEach(sel => {
         sel.onchange = () => {
           const runnerId = sel.dataset.id;
@@ -136,8 +205,58 @@
           });
         };
       });
+
+      // Speedhunt Ping listeners
+      document.querySelectorAll(".pingBtn").forEach(btn => {
+        btn.onclick = () => {
+          const runnerId = btn.dataset.id;
+
+          update(ref(db, `events/${eventId}/runners/${runnerId}`), {
+            speedhuntPing: Date.now()
+          });
+        };
+      });
     });
-  };
+  }
+
+  // ---------------------------------------------------------
+  // LOAD HUNTERS
+  // ---------------------------------------------------------
+  function loadHunters(eventId) {
+    const huntersRef = ref(db, `events/${eventId}/hunters`);
+
+    onValue(huntersRef, snapshot => {
+      const data = snapshot.val();
+      hunterBody.innerHTML = "";
+      hunterTable.style.display = "table";
+
+      if (!data) return;
+
+      const sorted = Object.keys(data).sort((a, b) => {
+        const numA = parseInt(a.replace(/\D/g, "")) || 0;
+        const numB = parseInt(b.replace(/\D/g, "")) || 0;
+        return numA - numB;
+      });
+
+      for (const id of sorted) {
+        const hunter = data[id];
+        const latest = hunter.latest;
+
+        const lastUpdate = latest
+          ? Math.round((Date.now() - latest.timestamp) / 60000) + " min ago"
+          : "No data";
+
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+          <td>${id}</td>
+          <td>${lastUpdate}</td>
+        `;
+
+        hunterBody.appendChild(row);
+      }
+    });
+  }
 </script>
 
 </body>

@@ -259,6 +259,28 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // -----------------------------------------------------
+  // SPEEDHUNT PING HANDLER
+  // -----------------------------------------------------
+  for (const runnerId in runners) {
+    const r = runners[runnerId];
+
+    const refPath = `events/${r.eventId}/runners/${runnerId}/speedhuntPing`;
+
+    const pingSnapshot = await db.ref(refPath).once("value");
+    const pingValue = pingSnapshot.val();
+
+    if (pingValue) {
+      console.log(`Speedhunt Ping triggered for ${runnerId}`);
+
+      // Push last known location immediately
+      await writeRunnerLatestOnly(runnerId, r);
+
+      // Clear the ping flag
+      await db.ref(refPath).remove();
+    }
+  }
+
   res.sendStatus(200);
 });
 
@@ -313,35 +335,27 @@ async function writeHunterLatest(id, data) {
 
 
 // ---------------------------------------------------------
-// INTERVAL PUSH (RUNNERS ONLY)
+// INTERVAL PUSH (every 20 minutes)
 // ---------------------------------------------------------
-function scheduleInterval() {
-  const now = new Date();
-  const msUntil = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+setInterval(async () => {
+  console.log("Interval push triggered.");
 
-  setTimeout(() => {
-    setInterval(pushInterval, 60000);
-    pushInterval();
-  }, msUntil);
-}
+  for (const runnerId in runners) {
+    const r = runners[runnerId];
 
-async function pushInterval() {
-  console.log("Interval push…");
-
-  for (const id in runners) {
-    const r = runners[id];
-    if (!r.lat || !r.lng) continue;
-
-    console.log(`Interval write for ${id}`);
-    await writeRunnerLatestAndHistory(id, r);
+    // Only push if we have a stored location
+    if (r.lat && r.lng && !r.liveMode) {
+      console.log(`Interval push for ${runnerId}`);
+      await writeRunnerLatestAndHistory(runnerId, r);
+    }
   }
-}
-
-scheduleInterval();
+}, 20 * 60 * 1000); // 20 minutes
 
 
 // ---------------------------------------------------------
 // START SERVER
 // ---------------------------------------------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Backend running on", PORT));
+app.listen(PORT, () => {
+  console.log(`Manhunt backend running on port ${PORT}`);
+});
