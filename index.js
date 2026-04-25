@@ -37,7 +37,7 @@ app.post("/webhook", async (req, res) => {
   console.log("Incoming update:", update.update_id);
 
   // -----------------------------------------------------
-  // /start <id>?event=<eventId>
+  // /start <id>?event=<eventId>   (event defaults to testEvent)
   // -----------------------------------------------------
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
@@ -49,7 +49,16 @@ app.post("/webhook", async (req, res) => {
     }
 
     const param = parts[1];
-    const [id, eventId] = param.split("?event=");
+
+    // Extract ID and event
+    let id = param;
+    let eventId = "testEvent"; // default
+
+    if (param.includes("?event=")) {
+      const split = param.split("?event=");
+      id = split[0];
+      eventId = split[1] || "testEvent";
+    }
 
     // ---------------------------
     // RUNNER REGISTRATION
@@ -85,7 +94,6 @@ app.post("/webhook", async (req, res) => {
         timestamp: null
       };
 
-      // Send personalized map link
       await sendMessage(
         chatId,
         `Hunter registered: ${id}\nEvent: ${eventId}\n\nYour map:\nhttps://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}`
@@ -104,7 +112,7 @@ app.post("/webhook", async (req, res) => {
   if (update.message?.text === "/stop") {
     const chatId = update.message.chat.id;
 
-    // Check if this chatId belongs to a runner
+    // Runner?
     const runnerId = Object.keys(runners).find(
       id => runners[id].chatId === chatId
     );
@@ -112,17 +120,14 @@ app.post("/webhook", async (req, res) => {
     if (runnerId) {
       const eventId = runners[runnerId].eventId;
 
-      // Remove from Firebase
       await db.ref(`events/${eventId}/runners/${runnerId}`).remove();
-
-      // Remove from memory
       delete runners[runnerId];
 
       await sendMessage(chatId, `Runner ${runnerId} removed from event ${eventId}.`);
       return res.sendStatus(200);
     }
 
-    // Check if this chatId belongs to a hunter
+    // Hunter?
     const hunterId = Object.keys(hunters).find(
       id => hunters[id].chatId === chatId
     );
@@ -130,10 +135,7 @@ app.post("/webhook", async (req, res) => {
     if (hunterId) {
       const eventId = hunters[hunterId].eventId;
 
-      // Remove from Firebase
       await db.ref(`events/${eventId}/hunters/${hunterId}`).remove();
-
-      // Remove from memory
       delete hunters[hunterId];
 
       await sendMessage(chatId, `Hunter ${hunterId} removed from event ${eventId}.`);

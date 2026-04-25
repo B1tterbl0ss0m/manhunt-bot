@@ -3,6 +3,7 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hunter Map</title>
+
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
@@ -70,7 +71,7 @@
   // ---------------------------------------------------------
   const params = new URLSearchParams(location.search);
   const eventId = params.get("event") || "testEvent";
-  const myHunterId = params.get("me") || null;   // <--- NEW
+  const myHunterId = params.get("me") || null;
 
   // ---------------------------------------------------------
   // MAP INITIALIZATION
@@ -92,26 +93,26 @@
   // RUNNERS (YELLOW WITH NUMBER)
   // ---------------------------------------------------------
   onValue(ref(db, `events/${eventId}/runners`), snapshot => {
-    const data = snapshot.val();
-    if (!data) return;
+    const data = snapshot.val() || {};
 
+    // Remove markers for runners that no longer exist
+    for (const id in runnerMarkers) {
+      if (!data[id]) {
+        removeMarker(runnerMarkers, id);
+      }
+    }
+
+    // Update existing runners
     for (const id in data) {
       const runner = data[id];
       const status = runner.status || "active";
 
-      if (status !== "active") {
-        removeMarker(runnerMarkers, id);
-        continue;
-      }
-
-      if (!runner.latest) {
+      if (status !== "active" || !runner.latest) {
         removeMarker(runnerMarkers, id);
         continue;
       }
 
       const { lat, lng } = runner.latest;
-
-      // Extract runner number (runner3 → 3)
       const number = id.replace("runner", "");
 
       if (!runnerMarkers[id]) {
@@ -133,9 +134,16 @@
   // HUNTERS (RED, EXCEPT SELF = BLUE)
   // ---------------------------------------------------------
   onValue(ref(db, `events/${eventId}/hunters`), snapshot => {
-    const data = snapshot.val();
-    if (!data) return;
+    const data = snapshot.val() || {};
 
+    // Remove markers for hunters that no longer exist
+    for (const id in hunterMarkers) {
+      if (!data[id]) {
+        removeMarker(hunterMarkers, id);
+      }
+    }
+
+    // Update existing hunters
     for (const id in data) {
       const hunter = data[id];
       const latest = hunter.latest;
@@ -146,7 +154,6 @@
       }
 
       const { lat, lng } = latest;
-
       const isMe = (id === myHunterId);
 
       const iconHtml = isMe
