@@ -349,7 +349,7 @@ setInterval(async () => {
       await writeRunnerLatestAndHistory(runnerId, r);
     }
   }
-}, 20 * 60 * 1000); // 20 minutes
+}, 60 * 1000); // 20 minutes
 
 
 // ---------------------------------------------------------
