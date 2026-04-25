@@ -80,6 +80,8 @@ app.post("/webhook", async (req, res) => {
         liveMode: false
       };
 
+      attachSpeedhuntListener(eventId, id);
+
       await sendMessage(
         chatId,
         `Runner registered: ${id}\nEvent: ${eventId}\nNow share your LIVE location.`
@@ -370,6 +372,29 @@ function scheduleNextTick() {
 
 // Start synchronized scheduler
 scheduleNextTick();
+
+// ---------------------------------------------------------
+// SPEEDHUNT PING LISTENER (instant, no Telegram dependency)
+// ---------------------------------------------------------
+function attachSpeedhuntListener(eventId, runnerId) {
+  const refPath = `events/${eventId}/runners/${runnerId}/speedhuntPing`;
+
+  db.ref(refPath).on("value", async snapshot => {
+    const val = snapshot.val();
+    if (!val) return;
+
+    console.log(`Instant Speedhunt Ping for ${runnerId}`);
+
+    const r = runners[runnerId];
+    if (r && r.lat && r.lng) {
+      await writeRunnerLatestOnly(runnerId, r);
+    }
+
+    // Clear the flag
+    await db.ref(refPath).remove();
+  });
+}
+
 
 
 // ---------------------------------------------------------
