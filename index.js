@@ -4,10 +4,8 @@ import fetch from "node-fetch";
 import admin from "firebase-admin";
 
 // ---------------------------------------------------------
-// CONFIG: TEST MODE OR FINAL MODE
+// CONFIG
 // ---------------------------------------------------------
-// TEST MODE → push every full minute
-// FINAL MODE → push at :00, :20, :40
 const TEST_MODE = true;
 
 // ---------------------------------------------------------
@@ -28,15 +26,13 @@ const db = admin.database();
 const app = express();
 app.use(bodyParser.json());
 
-// Memory store:
-// runners: { chatId, eventId, lat, lng, timestamp, hasPushedOnce, liveMode }
-// hunters: { chatId, eventId, lat, lng, timestamp }
+// Memory store
 const runners = {};
 const hunters = {};
 
 
 // ---------------------------------------------------------
-// SPEEDHUNT LISTENER ATTACHER
+// SPEEDHUNT LISTENER
 // ---------------------------------------------------------
 function attachSpeedhuntListener(eventId, runnerId) {
   const refPath = `events/${eventId}/runners/${runnerId}/speedhuntPing`;
@@ -59,7 +55,7 @@ function attachSpeedhuntListener(eventId, runnerId) {
 
 
 // ---------------------------------------------------------
-// TELEGRAM WEBHOOK HANDLER
+// TELEGRAM WEBHOOK
 // ---------------------------------------------------------
 app.post("/webhook", async (req, res) => {
   const update = req.body;
@@ -67,7 +63,7 @@ app.post("/webhook", async (req, res) => {
   console.log("Incoming update:", update.update_id);
 
   // -----------------------------------------------------
-  // /start <id>?event=<eventId>
+  // /start
   // -----------------------------------------------------
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
@@ -90,7 +86,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     // ---------------------------
-    // RUNNER REGISTRATION
+    // RUNNER
     // ---------------------------
     if (id.startsWith("runner")) {
       runners[id] = {
@@ -114,7 +110,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     // ---------------------------
-    // HUNTER REGISTRATION
+    // HUNTER
     // ---------------------------
     if (id.startsWith("hunter")) {
       hunters[id] = {
@@ -256,6 +252,9 @@ app.post("/webhook", async (req, res) => {
     r.lat = loc.latitude;
     r.lng = loc.longitude;
     r.timestamp = Date.now();
+
+    // NEW: write memory for GM map
+    await db.ref(`events/${r.eventId}/runners/${runnerId}/memory`).set(payload(r));
 
     if (!r.hasPushedOnce) {
       await writeRunnerLatestAndHistory(runnerId, r);

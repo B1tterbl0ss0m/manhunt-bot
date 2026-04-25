@@ -9,9 +9,17 @@
 
   <style>
     body { font-family: sans-serif; margin: 0; padding: 0; }
-    #map { height: 100vh; }
+    #map { height: calc(100vh - 50px); }
+    #controls {
+      height: 50px;
+      padding: 10px;
+      background: #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
 
-    /* Runner markers */
+    /* Runner markers (current mode) */
     .runner-yellow {
       width: 26px;
       height: 26px;
@@ -39,6 +47,36 @@
       color: white;
     }
 
+    /* History dots */
+    .history-grey {
+      width: 12px;
+      height: 12px;
+      background: #888;
+      border-radius: 50%;
+      border: 1px solid #333;
+    }
+
+    .history-red {
+      width: 12px;
+      height: 12px;
+      background: red;
+      border-radius: 50%;
+      border: 1px solid #333;
+    }
+
+    .history-latest {
+      width: 26px;
+      height: 26px;
+      background: #FFD500;
+      border-radius: 50%;
+      border: 2px solid #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
     /* Hunter markers */
     .hunter-lightblue {
       width: 18px;
@@ -60,11 +98,18 @@
 
 <body>
 
+<div id="controls">
+  <label for="viewSelect">View:</label>
+  <select id="viewSelect">
+    <option value="current">Current</option>
+  </select>
+</div>
+
 <div id="map"></div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+  import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
   // ---------------------------------------------------------
   // FIREBASE CONFIG
@@ -98,6 +143,15 @@
   const runnerMarkers = {};
   const hunterMarkers = {};
 
+  // History mode storage
+  let historyMarkers = [];
+  let historyPolyline = null;
+  let historyListener = null;
+  let currentHistoryRunner = null;
+
+  // Cached runner snapshot for restoring Current mode
+  let latestRunnersSnapshot = null;
+
   function removeMarker(store, id) {
     if (store[id]) {
       map.removeLayer(store[id]);
@@ -106,77 +160,18 @@
   }
 
   // ---------------------------------------------------------
-  // RUNNERS (YELLOW OR RED IF LIVE MODE)
-  // ---------------------------------------------------------
-  onValue(ref(db, `events/${eventId}/runners`), snapshot => {
-    const data = snapshot.val() || {};
-
-    // Remove markers for runners that no longer exist
-    for (const id in runnerMarkers) {
-      if (!data[id]) {
-        removeMarker(runnerMarkers, id);
-      }
-    }
-
-    // Update existing runners
-    for (const id in data) {
-      const runner = data[id];
-      const status = runner.status || "active";
-
-      if (status !== "active" || !runner.latest) {
-        removeMarker(runnerMarkers, id);
-        continue;
-      }
-
-      const { lat, lng } = runner.latest;
-      const number = id.replace("runner", "");
-      const isLive = runner.liveMode === true;
-
-      const html = isLive
-        ? `<div class="runner-red">${number}</div>`
-        : `<div class="runner-yellow">${number}</div>`;
-
-      if (!runnerMarkers[id]) {
-        runnerMarkers[id] = L.marker([lat, lng], {
-          icon: L.divIcon({
-            className: "",
-            html,
-            iconSize: [26, 26],
-            iconAnchor: [13, 13]
-          })
-        }).addTo(map);
-      } else {
-        runnerMarkers[id].setLatLng([lat, lng]);
-        runnerMarkers[id].setIcon(
-          L.divIcon({
-            className: "",
-            html,
-            iconSize: [26, 26],
-            iconAnchor: [13, 13]
-          })
-        );
-      }
-    }
-  });
-
-  // ---------------------------------------------------------
-  // HUNTERS (LIGHT BLUE OR DARK BLUE IF SELF)
+  // HUNTERS (ALWAYS SHOWN)
   // ---------------------------------------------------------
   onValue(ref(db, `events/${eventId}/hunters`), snapshot => {
     const data = snapshot.val() || {};
 
-    // Remove markers for hunters that no longer exist
     for (const id in hunterMarkers) {
-      if (!data[id]) {
-        removeMarker(hunterMarkers, id);
-      }
+      if (!data[id]) removeMarker(hunterMarkers, id);
     }
 
-    // Update existing hunters
     for (const id in data) {
       const hunter = data[id];
       const latest = hunter.latest;
-
       if (!latest) {
         removeMarker(hunterMarkers, id);
         continue;
@@ -200,18 +195,169 @@
         }).addTo(map);
       } else {
         hunterMarkers[id].setLatLng([lat, lng]);
-        hunterMarkers[id].setIcon(
-          L.divIcon({
-            className: "",
-            html,
-            iconSize: isMe ? [20, 20] : [18, 18],
-            iconAnchor: isMe ? [10, 10] : [9, 9]
-          })
-        );
       }
     }
   });
 
+  // ---------------------------------------------------------
+  // RUNNERS (CURRENT MODE + CACHE)
+  // ---------------------------------------------------------
+  const runnersRef = ref(db, `events/${eventId}/runners`);
+  onValue(runnersRef, snapshot => {
+    const data = snapshot.val() || {};
+    latestRunnersSnapshot = data;
+
+    const viewSelect = document.getElementById("viewSelect");
+
+    // Update dropdown
+    const existing = new Set();
+    for (let i = 0; i < viewSelect.options.length; i++) {
+      existing.add(viewSelect.options[i].value);
+    }
+
+    for (const id in data) {
+      if (!existing.has(id)) {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = id;
+        viewSelect.appendChild(opt);
+      }
+    }
+
+    if (viewSelect.value !== "current") return;
+
+    renderCurrentFromCache();
+  });
+
+  // ---------------------------------------------------------
+  // RENDER CURRENT MODE FROM CACHE
+  // ---------------------------------------------------------
+  function renderCurrentFromCache() {
+    if (!latestRunnersSnapshot) return;
+
+    const data = latestRunnersSnapshot;
+
+    // Remove old markers
+    for (const id in runnerMarkers) {
+      removeMarker(runnerMarkers, id);
+    }
+
+    // Recreate markers
+    for (const id in data) {
+      const runner = data[id];
+      const status = runner.status || "active";
+      const latest = runner.latest;
+
+      if (status !== "active" || !latest) continue;
+
+      const { lat, lng } = latest;
+      const number = id.replace("runner", "");
+      const isLive = runner.liveMode === true;
+
+      const html = isLive
+        ? `<div class="runner-red">${number}</div>`
+        : `<div class="runner-yellow">${number}</div>`;
+
+      runnerMarkers[id] = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: "",
+          html,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
+        })
+      }).addTo(map);
+    }
+  }
+
+  // ---------------------------------------------------------
+  // HISTORY MODE
+  // ---------------------------------------------------------
+  function clearHistoryMode() {
+    if (historyListener) {
+      off(historyListener);
+      historyListener = null;
+    }
+
+    historyMarkers.forEach(m => map.removeLayer(m));
+    historyMarkers = [];
+
+    if (historyPolyline) {
+      map.removeLayer(historyPolyline);
+      historyPolyline = null;
+    }
+
+    currentHistoryRunner = null;
+  }
+
+  function enterHistoryMode(runnerId) {
+    clearHistoryMode();
+    currentHistoryRunner = runnerId;
+
+    // Hide all runner markers
+    for (const id in runnerMarkers) {
+      removeMarker(runnerMarkers, id);
+    }
+
+    const historyRef = ref(db, `events/${eventId}/runners/${runnerId}/history`);
+    historyListener = historyRef;
+
+    onValue(historyRef, snapshot => {
+      const data = snapshot.val() || {};
+
+      // Clear old markers
+      historyMarkers.forEach(m => map.removeLayer(m));
+      historyMarkers = [];
+
+      const points = [];
+      const entries = Object.values(data);
+      entries.sort((a, b) => a.timestamp - b.timestamp);
+
+      const number = runnerId.replace("runner", "");
+
+      entries.forEach((entry, idx) => {
+        const { lat, lng, speedhunt } = entry;
+        points.push([lat, lng]);
+
+        let html;
+        if (idx === entries.length - 1) {
+          html = `<div class="history-latest">${number}</div>`;
+        } else if (speedhunt) {
+          html = `<div class="history-red"></div>`;
+        } else {
+          html = `<div class="history-grey"></div>`;
+        }
+
+        const marker = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: "",
+            html,
+            iconSize: idx === entries.length - 1 ? [26, 26] : [12, 12],
+            iconAnchor: idx === entries.length - 1 ? [13, 13] : [6, 6]
+          })
+        }).addTo(map);
+
+        historyMarkers.push(marker);
+      });
+
+      if (historyPolyline) map.removeLayer(historyPolyline);
+      historyPolyline = L.polyline(points, { color: "#666", weight: 3 }).addTo(map);
+    });
+  }
+
+  // ---------------------------------------------------------
+  // VIEW MODE SWITCHING
+  // ---------------------------------------------------------
+  document.getElementById("viewSelect").onchange = e => {
+    const mode = e.target.value;
+
+    if (mode === "current") {
+      clearHistoryMode();
+      renderCurrentFromCache();   // <-- FIX: restore immediately
+      return;
+    }
+
+    enterHistoryMode(mode);
+  };
 </script>
 
 </body>
