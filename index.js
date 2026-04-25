@@ -36,6 +36,29 @@ const hunters = {};
 
 
 // ---------------------------------------------------------
+// SPEEDHUNT LISTENER ATTACHER
+// ---------------------------------------------------------
+function attachSpeedhuntListener(eventId, runnerId) {
+  const refPath = `events/${eventId}/runners/${runnerId}/speedhuntPing`;
+
+  db.ref(refPath).on("value", async snapshot => {
+    const val = snapshot.val();
+    if (!val) return;
+
+    console.log(`Instant Speedhunt Ping for ${runnerId}`);
+
+    const r = runners[runnerId];
+
+    if (r && r.lat && r.lng) {
+      await writeRunnerLatestAndHistory_Speedhunt(runnerId, r);
+    }
+
+    await db.ref(refPath).remove();
+  });
+}
+
+
+// ---------------------------------------------------------
 // TELEGRAM WEBHOOK HANDLER
 // ---------------------------------------------------------
 app.post("/webhook", async (req, res) => {
@@ -248,26 +271,6 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // -----------------------------------------------------
-  // SPEEDHUNT PING
-  // -----------------------------------------------------
-  for (const runnerId in runners) {
-    const r = runners[runnerId];
-
-    const refPath = `events/${r.eventId}/runners/${runnerId}/speedhuntPing`;
-
-    const pingSnapshot = await db.ref(refPath).once("value");
-    const pingValue = pingSnapshot.val();
-
-    if (pingValue) {
-      console.log(`Speedhunt Ping triggered for ${runnerId}`);
-
-      await writeRunnerLatestOnly(runnerId, r);
-
-      await db.ref(refPath).remove();
-    }
-  }
-
   res.sendStatus(200);
 });
 
@@ -313,6 +316,16 @@ async function writeRunnerLatestAndHistory(id, data) {
   await db.ref(`events/${eventId}/runners/${id}/history`).push(p);
 }
 
+async function writeRunnerLatestAndHistory_Speedhunt(id, data) {
+  const eventId = data.eventId;
+
+  const p = payload(data);
+  p.speedhunt = true;
+
+  await db.ref(`events/${eventId}/runners/${id}/latest`).set(payload(data));
+  await db.ref(`events/${eventId}/runners/${id}/history`).push(p);
+}
+
 async function writeHunterLatest(id, data) {
   const eventId = data.eventId;
   await db.ref(`events/${eventId}/hunters/${id}/latest`).set(payload(data));
@@ -341,11 +354,9 @@ function scheduleNextTick() {
   let msUntilNext;
 
   if (TEST_MODE) {
-    // Every full minute
     msUntilNext =
       60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
   } else {
-    // FINAL MODE: next :00, :20, :40
     const minute = now.getMinutes();
     const second = now.getSeconds();
     const ms = now.getMilliseconds();
@@ -370,31 +381,7 @@ function scheduleNextTick() {
   }, msUntilNext);
 }
 
-// Start synchronized scheduler
 scheduleNextTick();
-
-// ---------------------------------------------------------
-// SPEEDHUNT PING LISTENER (instant, no Telegram dependency)
-// ---------------------------------------------------------
-function attachSpeedhuntListener(eventId, runnerId) {
-  const refPath = `events/${eventId}/runners/${runnerId}/speedhuntPing`;
-
-  db.ref(refPath).on("value", async snapshot => {
-    const val = snapshot.val();
-    if (!val) return;
-
-    console.log(`Instant Speedhunt Ping for ${runnerId}`);
-
-    const r = runners[runnerId];
-    if (r && r.lat && r.lng) {
-      await writeRunnerLatestOnly(runnerId, r);
-    }
-
-    // Clear the flag
-    await db.ref(refPath).remove();
-  });
-}
-
 
 
 // ---------------------------------------------------------
