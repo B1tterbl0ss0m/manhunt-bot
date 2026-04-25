@@ -4,6 +4,13 @@ import fetch from "node-fetch";
 import admin from "firebase-admin";
 
 // ---------------------------------------------------------
+// CONFIG: TEST MODE OR FINAL MODE
+// ---------------------------------------------------------
+// TEST MODE → push every full minute
+// FINAL MODE → push at :00, :20, :40
+const TEST_MODE = true;
+
+// ---------------------------------------------------------
 // FIREBASE INITIALIZATION
 // ---------------------------------------------------------
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -37,7 +44,7 @@ app.post("/webhook", async (req, res) => {
   console.log("Incoming update:", update.update_id);
 
   // -----------------------------------------------------
-  // /start <id>?event=<eventId>   (event defaults to testEvent)
+  // /start <id>?event=<eventId>
   // -----------------------------------------------------
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
@@ -50,9 +57,8 @@ app.post("/webhook", async (req, res) => {
 
     const param = parts[1];
 
-    // Extract ID and event
     let id = param;
-    let eventId = "testEvent"; // default
+    let eventId = "testEvent";
 
     if (param.includes("?event=")) {
       const split = param.split("?event=");
@@ -107,15 +113,12 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // /stop → remove runner or hunter
+  // /stop
   // -----------------------------------------------------
   if (update.message?.text === "/stop") {
     const chatId = update.message.chat.id;
 
-    // Runner?
-    const runnerId = Object.keys(runners).find(
-      id => runners[id].chatId === chatId
-    );
+    const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
     if (runnerId) {
       const eventId = runners[runnerId].eventId;
@@ -127,10 +130,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Hunter?
-    const hunterId = Object.keys(hunters).find(
-      id => hunters[id].chatId === chatId
-    );
+    const hunterId = Object.keys(hunters).find(id => hunters[id].chatId === chatId);
 
     if (hunterId) {
       const eventId = hunters[hunterId].eventId;
@@ -147,14 +147,12 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // /live → enable real-time mode (runners only)
+  // /live
   // -----------------------------------------------------
   if (update.message?.text === "/live") {
     const chatId = update.message.chat.id;
 
-    const runnerId = Object.keys(runners).find(
-      id => runners[id].chatId === chatId
-    );
+    const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
     if (!runnerId) {
       await sendMessage(chatId, "Only runners can use /live.");
@@ -171,14 +169,12 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // /end → disable real-time mode (runners only)
+  // /end
   // -----------------------------------------------------
   if (update.message?.text === "/end") {
     const chatId = update.message.chat.id;
 
-    const runnerId = Object.keys(runners).find(
-      id => runners[id].chatId === chatId
-    );
+    const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
     if (!runnerId) {
       await sendMessage(chatId, "Only runners can use /end.");
@@ -195,11 +191,9 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -----------------------------------------------------
-  // Handle live location updates
+  // LOCATION UPDATES
   // -----------------------------------------------------
-  const loc =
-    update.message?.location ||
-    update.edited_message?.location;
+  const loc = update.message?.location || update.edited_message?.location;
 
   if (loc) {
     const chatId =
@@ -207,11 +201,9 @@ app.post("/webhook", async (req, res) => {
       update.edited_message?.chat?.id;
 
     // ---------------------------
-    // HUNTER LOCATION UPDATE
+    // HUNTER LOCATION
     // ---------------------------
-    const hunterId = Object.keys(hunters).find(
-      id => hunters[id].chatId === chatId
-    );
+    const hunterId = Object.keys(hunters).find(id => hunters[id].chatId === chatId);
 
     if (hunterId) {
       const h = hunters[hunterId];
@@ -226,11 +218,9 @@ app.post("/webhook", async (req, res) => {
     }
 
     // ---------------------------
-    // RUNNER LOCATION UPDATE
+    // RUNNER LOCATION
     // ---------------------------
-    const runnerId = Object.keys(runners).find(
-      id => runners[id].chatId === chatId
-    );
+    const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
     if (!runnerId) {
       console.log("Location received but no runner/hunter matched.");
@@ -242,25 +232,22 @@ app.post("/webhook", async (req, res) => {
     r.lng = loc.longitude;
     r.timestamp = Date.now();
 
-    // First write → latest + history
     if (!r.hasPushedOnce) {
       await writeRunnerLatestAndHistory(runnerId, r);
       r.hasPushedOnce = true;
       return res.sendStatus(200);
     }
 
-    // Live mode → latest only
     if (r.liveMode) {
       await writeRunnerLatestOnly(runnerId, r);
       return res.sendStatus(200);
     }
 
-    // Normal mode → store only
     return res.sendStatus(200);
   }
 
   // -----------------------------------------------------
-  // SPEEDHUNT PING HANDLER
+  // SPEEDHUNT PING
   // -----------------------------------------------------
   for (const runnerId in runners) {
     const r = runners[runnerId];
@@ -273,10 +260,8 @@ app.post("/webhook", async (req, res) => {
     if (pingValue) {
       console.log(`Speedhunt Ping triggered for ${runnerId}`);
 
-      // Push last known location immediately
       await writeRunnerLatestOnly(runnerId, r);
 
-      // Clear the ping flag
       await db.ref(refPath).remove();
     }
   }
@@ -314,7 +299,6 @@ function payload(data) {
   };
 }
 
-// ------------------ RUNNERS ------------------
 async function writeRunnerLatestOnly(id, data) {
   const eventId = data.eventId;
   await db.ref(`events/${eventId}/runners/${id}/latest`).set(payload(data));
@@ -327,7 +311,6 @@ async function writeRunnerLatestAndHistory(id, data) {
   await db.ref(`events/${eventId}/runners/${id}/history`).push(p);
 }
 
-// ------------------ HUNTERS ------------------
 async function writeHunterLatest(id, data) {
   const eventId = data.eventId;
   await db.ref(`events/${eventId}/hunters/${id}/latest`).set(payload(data));
@@ -335,21 +318,58 @@ async function writeHunterLatest(id, data) {
 
 
 // ---------------------------------------------------------
-// INTERVAL PUSH (every 20 minutes)
+// SYNCHRONIZED INTERVAL SYSTEM
 // ---------------------------------------------------------
-setInterval(async () => {
-  console.log("Interval push triggered.");
+function runIntervalPush() {
+  console.log("Synchronized interval push triggered.");
 
   for (const runnerId in runners) {
     const r = runners[runnerId];
 
-    // Only push if we have a stored location
     if (r.lat && r.lng && !r.liveMode) {
       console.log(`Interval push for ${runnerId}`);
-      await writeRunnerLatestAndHistory(runnerId, r);
+      writeRunnerLatestAndHistory(runnerId, r);
     }
   }
-}, 60 * 1000); // 20 minutes
+}
+
+function scheduleNextTick() {
+  const now = new Date();
+
+  let msUntilNext;
+
+  if (TEST_MODE) {
+    // Every full minute
+    msUntilNext =
+      60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
+  } else {
+    // FINAL MODE: next :00, :20, :40
+    const minute = now.getMinutes();
+    const second = now.getSeconds();
+    const ms = now.getMilliseconds();
+
+    let nextTarget;
+
+    if (minute < 20) nextTarget = 20;
+    else if (minute < 40) nextTarget = 40;
+    else nextTarget = 60;
+
+    const minutesUntil = nextTarget - minute;
+    msUntilNext =
+      minutesUntil * 60000 -
+      (second * 1000 + ms);
+  }
+
+  console.log(`Next synchronized push in ${msUntilNext} ms`);
+
+  setTimeout(() => {
+    runIntervalPush();
+    scheduleNextTick();
+  }, msUntilNext);
+}
+
+// Start synchronized scheduler
+scheduleNextTick();
 
 
 // ---------------------------------------------------------
