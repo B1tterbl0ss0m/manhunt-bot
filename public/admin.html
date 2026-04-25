@@ -68,6 +68,33 @@
 <input id="eventInput" />
 <button id="loadBtn">Load Event</button>
 
+<!-- ✅ ADDED: GM MAP LINK (only change) -->
+<div style="margin-top:10px;">
+  <a id="gmMapLink" href="#" target="_blank" style="font-weight:bold; color:#0050ff;">
+    Open Game Master Map
+  </a>
+</div>
+
+<script>
+  const eventInputEl = document.getElementById("eventInput");
+  const gmLink = document.getElementById("gmMapLink");
+
+  function updateGMMapLink() {
+    const eventId = eventInputEl.value.trim();
+    if (!eventId) {
+      gmLink.href = "#";
+      gmLink.textContent = "Open Game Master Map";
+      return;
+    }
+    gmLink.href = `https://manhunt-e6f98.web.app/gm.html?event=${eventId}`;
+    gmLink.textContent = `Open GM Map for "${eventId}"`;
+  }
+
+  eventInputEl.addEventListener("input", updateGMMapLink);
+  updateGMMapLink();
+</script>
+<!-- END OF ADDED BLOCK -->
+
 <!-- RUNNER TABLE -->
 <table id="runnerTable" style="display:none;">
   <thead>
@@ -123,11 +150,13 @@
   // ---------------------------------------------------------
   window.onload = () => {
     eventInput.value = "testEvent";
+    updateGMMapLink(); // keep link in sync
     loadEvent("testEvent");
   };
 
   loadBtn.onclick = () => {
     const eventId = eventInput.value.trim() || "testEvent";
+    updateGMMapLink();
     loadEvent(eventId);
   };
 

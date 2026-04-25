@@ -6,7 +6,7 @@ import admin from "firebase-admin";
 // ---------------------------------------------------------
 // CONFIG
 // ---------------------------------------------------------
-const TEST_MODE = true;
+const TEST_MODE = false;
 
 // ---------------------------------------------------------
 // FIREBASE INITIALIZATION
