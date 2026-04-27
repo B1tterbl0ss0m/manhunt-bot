@@ -19,7 +19,6 @@
       gap: 10px;
     }
 
-    /* Runner markers (current mode) */
     .runner-yellow {
       width: 26px;
       height: 26px;
@@ -47,7 +46,6 @@
       color: white;
     }
 
-    /* History dots */
     .history-grey {
       width: 12px;
       height: 12px;
@@ -77,7 +75,6 @@
       font-size: 14px;
     }
 
-    /* Hunter markers */
     .hunter-lightblue {
       width: 18px;
       height: 18px;
@@ -111,9 +108,6 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
   import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-  // ---------------------------------------------------------
-  // FIREBASE CONFIG
-  // ---------------------------------------------------------
   const firebaseConfig = {
     apiKey: "...",
     authDomain: "manhunt-e6f98.firebaseapp.com",
@@ -127,29 +121,22 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  // ---------------------------------------------------------
-  // URL PARAMETERS
-  // ---------------------------------------------------------
   const params = new URLSearchParams(location.search);
   const eventId = params.get("event") || "testEvent";
   const myHunterId = params.get("me") || null;
 
-  // ---------------------------------------------------------
-  // MAP INITIALIZATION
-  // ---------------------------------------------------------
   const map = L.map('map').setView([47.05, 8.30], 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
   const runnerMarkers = {};
   const hunterMarkers = {};
 
-  // History mode storage
+  let myLiveMarker = null;
+
   let historyMarkers = [];
   let historyPolyline = null;
-  let historyListener = null;
-  let currentHistoryRunner = null;
+  let historyRef = null;
 
-  // Cached runner snapshot for restoring Current mode
   let latestRunnersSnapshot = null;
 
   function removeMarker(store, id) {
@@ -160,11 +147,37 @@
   }
 
   // ---------------------------------------------------------
-  // HUNTERS (ALWAYS SHOWN)
+  // LOCAL GPS FOR MYSELF
+  // ---------------------------------------------------------
+  if (myHunterId) {
+    navigator.geolocation.watchPosition(pos => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+
+      if (!myLiveMarker) {
+        myLiveMarker = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div class="hunter-darkblue"></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+          })
+        }).addTo(map);
+      } else {
+        myLiveMarker.setLatLng([lat, lng]);
+      }
+    }, err => {
+      console.warn("GPS error:", err);
+    }, { enableHighAccuracy: true });
+  }
+
+  // ---------------------------------------------------------
+  // HUNTERS (EXCEPT MYSELF)
   // ---------------------------------------------------------
   onValue(ref(db, `events/${eventId}/hunters`), snapshot => {
     const data = snapshot.val() || {};
 
+    // Remove hunters that disappeared
     for (const id in hunterMarkers) {
       if (!data[id]) removeMarker(hunterMarkers, id);
     }
@@ -172,25 +185,29 @@
     for (const id in data) {
       const hunter = data[id];
       const latest = hunter.latest;
+
       if (!latest) {
         removeMarker(hunterMarkers, id);
         continue;
       }
 
-      const { lat, lng } = latest;
-      const isMe = (id === myHunterId);
+      // 🔥 If this is me, ensure NO Firebase marker exists
+      if (id === myHunterId) {
+        removeMarker(hunterMarkers, id);
+        continue;
+      }
 
-      const html = isMe
-        ? `<div class="hunter-darkblue"></div>`
-        : `<div class="hunter-lightblue"></div>`;
+      // Other hunters (light blue)
+      const { lat, lng } = latest;
+      const html = `<div class="hunter-lightblue"></div>`;
 
       if (!hunterMarkers[id]) {
         hunterMarkers[id] = L.marker([lat, lng], {
           icon: L.divIcon({
             className: "",
             html,
-            iconSize: isMe ? [20, 20] : [18, 18],
-            iconAnchor: isMe ? [10, 10] : [9, 9]
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
           })
         }).addTo(map);
       } else {
@@ -200,7 +217,7 @@
   });
 
   // ---------------------------------------------------------
-  // RUNNERS (CURRENT MODE + CACHE)
+  // RUNNERS
   // ---------------------------------------------------------
   const runnersRef = ref(db, `events/${eventId}/runners`);
   onValue(runnersRef, snapshot => {
@@ -209,7 +226,6 @@
 
     const viewSelect = document.getElementById("viewSelect");
 
-    // Update dropdown
     const existing = new Set();
     for (let i = 0; i < viewSelect.options.length; i++) {
       existing.add(viewSelect.options[i].value);
@@ -224,27 +240,20 @@
       }
     }
 
-    if (viewSelect.value !== "current") return;
-
-    renderCurrentFromCache();
+    if (viewSelect.value === "current") {
+      renderCurrentFromCache();
+    }
   });
 
-  // ---------------------------------------------------------
-  // RENDER CURRENT MODE FROM CACHE
-  // ---------------------------------------------------------
   function renderCurrentFromCache() {
     if (!latestRunnersSnapshot) return;
 
-    const data = latestRunnersSnapshot;
-
-    // Remove old markers
     for (const id in runnerMarkers) {
       removeMarker(runnerMarkers, id);
     }
 
-    // Recreate markers
-    for (const id in data) {
-      const runner = data[id];
+    for (const id in latestRunnersSnapshot) {
+      const runner = latestRunnersSnapshot[id];
       const status = runner.status || "active";
       const latest = runner.latest;
 
@@ -273,9 +282,9 @@
   // HISTORY MODE
   // ---------------------------------------------------------
   function clearHistoryMode() {
-    if (historyListener) {
-      off(historyListener);
-      historyListener = null;
+    if (historyRef) {
+      off(historyRef);
+      historyRef = null;
     }
 
     historyMarkers.forEach(m => map.removeLayer(m));
@@ -285,32 +294,25 @@
       map.removeLayer(historyPolyline);
       historyPolyline = null;
     }
-
-    currentHistoryRunner = null;
   }
 
   function enterHistoryMode(runnerId) {
     clearHistoryMode();
-    currentHistoryRunner = runnerId;
 
-    // Hide all runner markers
     for (const id in runnerMarkers) {
       removeMarker(runnerMarkers, id);
     }
 
-    const historyRef = ref(db, `events/${eventId}/runners/${runnerId}/history`);
-    historyListener = historyRef;
+    historyRef = ref(db, `events/${eventId}/runners/${runnerId}/history`);
 
     onValue(historyRef, snapshot => {
       const data = snapshot.val() || {};
 
-      // Clear old markers
       historyMarkers.forEach(m => map.removeLayer(m));
       historyMarkers = [];
 
       const points = [];
-      const entries = Object.values(data);
-      entries.sort((a, b) => a.timestamp - b.timestamp);
+      const entries = Object.values(data).sort((a, b) => a.timestamp - b.timestamp);
 
       const number = runnerId.replace("runner", "");
 
@@ -345,18 +347,17 @@
   }
 
   // ---------------------------------------------------------
-  // VIEW MODE SWITCHING
+  // VIEW SWITCHING
   // ---------------------------------------------------------
   document.getElementById("viewSelect").onchange = e => {
     const mode = e.target.value;
 
     if (mode === "current") {
       clearHistoryMode();
-      renderCurrentFromCache();   // <-- FIX: restore immediately
-      return;
+      renderCurrentFromCache();
+    } else {
+      enterHistoryMode(mode);
     }
-
-    enterHistoryMode(mode);
   };
 </script>
 

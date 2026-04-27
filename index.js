@@ -136,7 +136,7 @@ app.post("/webhook", async (req, res) => {
   // -----------------------------------------------------
   // /stop
   // -----------------------------------------------------
-  if (update.message?.text === "/stop") {
+  if (update.message?.text === "/stop tracking") {
     const chatId = update.message.chat.id;
 
     const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
