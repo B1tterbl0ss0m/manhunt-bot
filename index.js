@@ -103,7 +103,7 @@ app.post("/webhook", async (req, res) => {
 
       await sendMessage(
         chatId,
-        `Runner registered: ${id}\nEvent: ${eventId}\n\nYour map:\nhttps://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}\nNow share your LIVE location.`
+        `Runner registered: ${id}\nEvent: ${eventId}\n\nYour map:\nhttps://manhunt-e6f98.web.app/runner.html?event=${eventId}\nNow share your LIVE location.`
       );
 
       return res.sendStatus(200);
