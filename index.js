@@ -62,84 +62,85 @@ app.post("/webhook", async (req, res) => {
 
   console.log("Incoming update:", update.update_id);
 
-  // -----------------------------------------------------
-  // /start
-  // -----------------------------------------------------
-  if (update.message?.text?.startsWith("/start")) {
-    const chatId = update.message.chat.id;
-    const parts = update.message.text.split(" ");
+// -----------------------------------------------------
+// /start
+// -----------------------------------------------------
+if (update.message?.text?.startsWith("/start")) {
+  const chatId = update.message.chat.id;
+  const parts = update.message.text.split(" ");
 
-    if (parts.length < 2) {
-      await sendMessage(chatId, "Usage: /start <id>?event=<eventId>");
-      return res.sendStatus(200);
-    }
+  if (parts.length < 2) {
+    await sendMessage(chatId, "Usage: /start <id>?event=<eventId>");
+    return res.sendStatus(200);
+  }
 
-    const param = parts[1];
+  const param = parts[1];
 
-    let id = param;
-    let eventId = "testEvent";
+  let id = param;
+  let eventId = "testEvent";
 
-    if (param.includes("?event=")) {
-      const split = param.split("?event=");
-      id = split[0];
-      eventId = split[1] || "testEvent";
-    }
+  if (param.includes("?event=")) {
+    const split = param.split("?event=");
+    id = split[0];
+    eventId = split[1] || "testEvent";
+  }
 
-    // ---------------------------
-// RUNNER
-// ---------------------------
-if (id.startsWith("runner")) {
-  runners[id] = {
-    chatId,
-    eventId,
-    lat: null,
-    lng: null,
-    timestamp: null,
-    hasPushedOnce: false,
-    liveMode: false
-  };
+  // ---------------------------
+  // RUNNER
+  // ---------------------------
+  if (id.startsWith("runner")) {
+    runners[id] = {
+      chatId,
+      eventId,
+      lat: null,
+      lng: null,
+      timestamp: null,
+      hasPushedOnce: false,
+      liveMode: false
+    };
 
-  attachSpeedhuntListener(eventId, id);
+    attachSpeedhuntListener(eventId, id);
 
-  // Build runner map link
-  const rawUrl = `https://manhunt-e6f98.web.app/runner.html?event=${eventId}&me=${id}`;
-  const externalUrl = `tg://open?url=${encodeURIComponent(rawUrl)}`;
+    const rawUrl = `https://manhunt-e6f98.web.app/runner.html?event=${eventId}&me=${id}`;
+    const externalUrl = `tg://open?url=${encodeURIComponent(rawUrl)}`;
 
-  await sendMessage(
-    chatId,
-    `Runner registered: ${id}\nEvent: ${eventId}\n\nYour map:\n[Open Runner Map](${externalUrl})`,
-    { parse_mode: "Markdown" }
-  );
+    await sendMessage(
+      chatId,
+      `Runner registered: ${id}\nEvent: ${eventId}\n\nYour map:\n[Open Runner Map](${externalUrl})`,
+      { parse_mode: "Markdown" }
+    );
 
+    return res.sendStatus(200);
+  }
+
+  // ---------------------------
+  // HUNTER
+  // ---------------------------
+  if (id.startsWith("hunter")) {
+    hunters[id] = {
+      chatId,
+      eventId,
+      lat: null,
+      lng: null,
+      timestamp: null
+    };
+
+    const rawUrl = `https://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}`;
+    const externalUrl = `tg://open?url=${encodeURIComponent(rawUrl)}`;
+
+    await sendMessage(
+      chatId,
+      `Hunter registered: ${id}\nEvent: ${eventId}\n\n[Open Hunter Map](${externalUrl})`,
+      { parse_mode: "Markdown" }
+    );
+
+    return res.sendStatus(200);
+  }
+
+  await sendMessage(chatId, "ID must start with runnerX or hunterX.");
   return res.sendStatus(200);
-}
+} // ⭐⭐⭐ THIS WAS MISSING — closes the /start block
 
-   // ---------------------------
-// HUNTER
-// ---------------------------
-if (id.startsWith("hunter")) {
-  hunters[id] = {
-    chatId,
-    eventId,
-    lat: null,
-    lng: null,
-    timestamp: null
-  };
-
-  const rawUrl = `https://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}`;
-  const externalUrl = `tg://open?url=${encodeURIComponent(rawUrl)}`;
-
-  await sendMessage(
-    chatId,
-    `Hunter registered: ${id}\nEvent: ${eventId}\n\n[Open Hunter Map](${externalUrl})`,
-    { parse_mode: "Markdown" }
-  );
-
-  return res.sendStatus(200);
-}
-
-await sendMessage(chatId, "ID must start with runnerX or hunterX.");
-return res.sendStatus(200);
 
 
   // -----------------------------------------------------
