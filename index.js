@@ -86,52 +86,61 @@ app.post("/webhook", async (req, res) => {
     }
 
     // ---------------------------
-    // RUNNER
-    // ---------------------------
-    if (id.startsWith("runner")) {
-      runners[id] = {
-        chatId,
-        eventId,
-        lat: null,
-        lng: null,
-        timestamp: null,
-        hasPushedOnce: false,
-        liveMode: false
-      };
+// RUNNER
+// ---------------------------
+if (id.startsWith("runner")) {
+  runners[id] = {
+    chatId,
+    eventId,
+    lat: null,
+    lng: null,
+    timestamp: null,
+    hasPushedOnce: false,
+    liveMode: false
+  };
 
-      attachSpeedhuntListener(eventId, id);
+  attachSpeedhuntListener(eventId, id);
 
-      await sendMessage(
-        chatId,
-        `Runner registered: ${id}\nEvent: ${eventId}\nNow share your LIVE location.`
-      );
+  // Build runner map link
+  const rawUrl = `https://manhunt-e6f98.web.app/runner.html?event=${eventId}&me=${id}`;
+  const externalUrl = `tg://open?url=${encodeURIComponent(rawUrl)}`;
 
-      return res.sendStatus(200);
-    }
+  await sendMessage(
+    chatId,
+    `Runner registered: ${id}\nEvent: ${eventId}\n\nYour map:\n[Open Runner Map](${externalUrl})`,
+    { parse_mode: "Markdown" }
+  );
 
-    // ---------------------------
-    // HUNTER
-    // ---------------------------
-    if (id.startsWith("hunter")) {
-      hunters[id] = {
-        chatId,
-        eventId,
-        lat: null,
-        lng: null,
-        timestamp: null
-      };
+  return res.sendStatus(200);
+}
 
-      await sendMessage(
-        chatId,
-        `Hunter registered: ${id}\nEvent: ${eventId}\n\nYour map:\nhttps://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}`
-      );
+   // ---------------------------
+// HUNTER
+// ---------------------------
+if (id.startsWith("hunter")) {
+  hunters[id] = {
+    chatId,
+    eventId,
+    lat: null,
+    lng: null,
+    timestamp: null
+  };
 
-      return res.sendStatus(200);
-    }
+  const rawUrl = `https://manhunt-e6f98.web.app/hunter.html?event=${eventId}&me=${id}`;
+  const externalUrl = `tg://open?url=${encodeURIComponent(rawUrl)}`;
 
-    await sendMessage(chatId, "ID must start with runnerX or hunterX.");
-    return res.sendStatus(200);
-  }
+  await sendMessage(
+    chatId,
+    `Hunter registered: ${id}\nEvent: ${eventId}\n\n[Open Hunter Map](${externalUrl})`,
+    { parse_mode: "Markdown" }
+  );
+
+  return res.sendStatus(200);
+}
+
+await sendMessage(chatId, "ID must start with runnerX or hunterX.");
+return res.sendStatus(200);
+
 
   // -----------------------------------------------------
   // /stop
