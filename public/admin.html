@@ -5,57 +5,23 @@
   <title>Event Dashboard</title>
 
   <style>
-    body { 
-      font-family: sans-serif; 
-      padding: 20px; 
-    }
+    body { font-family: sans-serif; padding: 20px; }
+    h2 { margin-bottom: 5px; }
 
-    h2 {
-      margin-bottom: 5px;
-    }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 8px; border-bottom: 1px solid #ccc; }
 
-    table { 
-      width: 100%; 
-      border-collapse: collapse; 
-      margin-top: 20px; 
-    }
-
-    th, td { 
-      padding: 8px; 
-      border-bottom: 1px solid #ccc; 
-    }
-
-    th:nth-child(1), td:nth-child(1) {
-      text-align: left;
-    }
-
+    th:nth-child(1), td:nth-child(1) { text-align: left; }
     th:nth-child(2), td:nth-child(2),
     th:nth-child(3), td:nth-child(3),
-    th:nth-child(4), td:nth-child(4) {
-      text-align: center;
-    }
+    th:nth-child(4), td:nth-child(4) { text-align: center; }
 
-    select {
-      padding: 5px;
-    }
+    select { padding: 5px; }
+    button { padding: 5px 10px; cursor: pointer; }
 
-    button {
-      padding: 5px 10px;
-      cursor: pointer;
-    }
-
-    /* Runner row colors */
-    .row-live {
-      background: #ffb3b3; /* readable light red */
-    }
-
-    .row-hidden {
-      background: #d9ecff; /* light blue */
-    }
-
-    .row-out {
-      background: #e0e0e0; /* grey */
-    }
+    .row-live { background: #ffb3b3; }
+    .row-hidden { background: #d9ecff; }
+    .row-out { background: #e0e0e0; }
   </style>
 </head>
 
@@ -68,7 +34,7 @@
 <input id="eventInput" />
 <button id="loadBtn">Load Event</button>
 
-<!-- ✅ ADDED: GM MAP LINK (only change) -->
+<!-- GM MAP LINK -->
 <div style="margin-top:10px;">
   <a id="gmMapLink" href="#" target="_blank" style="font-weight:bold; color:#0050ff;">
     Open Game Master Map
@@ -93,7 +59,6 @@
   eventInputEl.addEventListener("input", updateGMMapLink);
   updateGMMapLink();
 </script>
-<!-- END OF ADDED BLOCK -->
 
 <!-- RUNNER TABLE -->
 <table id="runnerTable" style="display:none;">
@@ -108,6 +73,20 @@
   <tbody id="runnerBody"></tbody>
 </table>
 
+<!-- EMBEDDED RUNNER MAP -->
+<h3 style="margin-top:30px;">Live Runner Map</h3>
+
+<label style="display:block; margin-top:10px;">
+  <input type="checkbox" id="showOthersCheckbox" checked>
+  Show other runners
+</label>
+
+<iframe 
+  id="runnerMapFrame"
+  src="runner.html?event=testEvent"
+  style="width:100%; height:500px; border:1px solid #ccc; margin-top:10px;">
+</iframe>
+
 <!-- HUNTER TABLE -->
 <table id="hunterTable" style="display:none;">
   <thead>
@@ -118,6 +97,14 @@
   </thead>
   <tbody id="hunterBody"></tbody>
 </table>
+
+<!-- EMBEDDED HUNTER MAP -->
+<h3 style="margin-top:30px;">Live Hunter Map</h3>
+<iframe 
+  id="hunterMapFrame"
+  src="hunter.html?event=testEvent"
+  style="width:100%; height:500px; border:1px solid #ccc; margin-top:10px;">
+</iframe>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -145,12 +132,16 @@
   const hunterTable = document.getElementById("hunterTable");
   const hunterBody = document.getElementById("hunterBody");
 
-  // ---------------------------------------------------------
-  // AUTO-LOAD testEvent ON PAGE OPEN
-  // ---------------------------------------------------------
+  const runnerMapFrame = document.getElementById("runnerMapFrame");
+  const hunterMapFrame = document.getElementById("hunterMapFrame");
+  const showOthersCheckbox = document.getElementById("showOthersCheckbox");
+
+  let settingsUnsub = null;
+
+  // AUTO-LOAD testEvent
   window.onload = () => {
     eventInput.value = "testEvent";
-    updateGMMapLink(); // keep link in sync
+    updateGMMapLink();
     loadEvent("testEvent");
   };
 
@@ -160,14 +151,38 @@
     loadEvent(eventId);
   };
 
+  // Checkbox writes to Firebase
+  showOthersCheckbox.onchange = () => {
+    const eventId = eventInput.value.trim() || "testEvent";
+    update(ref(db, `events/${eventId}/settings`), {
+      showOtherRunners: showOthersCheckbox.checked
+    });
+  };
+
   function loadEvent(eventId) {
     loadRunners(eventId);
     loadHunters(eventId);
+
+    // Update map sources for this event
+    runnerMapFrame.src = `runner.html?event=${eventId}`;
+    hunterMapFrame.src = `hunter.html?event=${eventId}`;
+
+    // Clean up previous settings listener
+    if (settingsUnsub) {
+      settingsUnsub();
+      settingsUnsub = null;
+    }
+
+    // Listen to showOtherRunners for this event to keep checkbox in sync
+    const settingsRef = ref(db, `events/${eventId}/settings/showOtherRunners`);
+    settingsUnsub = onValue(settingsRef, snap => {
+      const val = snap.val();
+      const show = val !== false; // default true
+      showOthersCheckbox.checked = show;
+    });
   }
 
-  // ---------------------------------------------------------
   // LOAD RUNNERS
-  // ---------------------------------------------------------
   function loadRunners(eventId) {
     const runnersRef = ref(db, `events/${eventId}/runners`);
 
@@ -196,14 +211,9 @@
 
         const row = document.createElement("tr");
 
-        // Row color logic
-        if (live) {
-          row.classList.add("row-live");
-        } else if (status === "hidden") {
-          row.classList.add("row-hidden");
-        } else if (status === "out") {
-          row.classList.add("row-out");
-        }
+        if (live) row.classList.add("row-live");
+        else if (status === "hidden") row.classList.add("row-hidden");
+        else if (status === "out") row.classList.add("row-out");
 
         row.innerHTML = `
           <td>${id}</td>
@@ -223,24 +233,17 @@
         runnerBody.appendChild(row);
       }
 
-      // Status change listeners
       document.querySelectorAll("select").forEach(sel => {
         sel.onchange = () => {
-          const runnerId = sel.dataset.id;
-          const newStatus = sel.value;
-
-          update(ref(db, `events/${eventId}/runners/${runnerId}`), {
-            status: newStatus
+          update(ref(db, `events/${eventId}/runners/${sel.dataset.id}`), {
+            status: sel.value
           });
         };
       });
 
-      // Speedhunt Ping listeners
       document.querySelectorAll(".pingBtn").forEach(btn => {
         btn.onclick = () => {
-          const runnerId = btn.dataset.id;
-
-          update(ref(db, `events/${eventId}/runners/${runnerId}`), {
+          update(ref(db, `events/${eventId}/runners/${btn.dataset.id}`), {
             speedhuntPing: Date.now()
           });
         };
@@ -248,9 +251,7 @@
     });
   }
 
-  // ---------------------------------------------------------
   // LOAD HUNTERS
-  // ---------------------------------------------------------
   function loadHunters(eventId) {
     const huntersRef = ref(db, `events/${eventId}/hunters`);
 
