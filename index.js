@@ -30,11 +30,19 @@ app.use(bodyParser.json());
 const runners = {};
 const hunters = {};
 
+// ---------------------------------------------------------
+// VALIDATION HELPERS
+// ---------------------------------------------------------
+function isValidId(id) {
+  return typeof id === "string" && id.length > 0 && id !== "null" && id !== "undefined";
+}
 
 // ---------------------------------------------------------
 // SPEEDHUNT LISTENER
 // ---------------------------------------------------------
 function attachSpeedhuntListener(eventId, runnerId) {
+  if (!isValidId(runnerId)) return;
+
   const refPath = `events/${eventId}/runners/${runnerId}/speedhuntPing`;
 
   db.ref(refPath).on("value", async snapshot => {
@@ -53,7 +61,6 @@ function attachSpeedhuntListener(eventId, runnerId) {
   });
 }
 
-
 // ---------------------------------------------------------
 // TELEGRAM WEBHOOK
 // ---------------------------------------------------------
@@ -69,13 +76,12 @@ app.post("/webhook", async (req, res) => {
     const chatId = update.message.chat.id;
     const parts = update.message.text.split(" ");
 
-    if (parts.length < 2) {
-      await sendMessage(chatId, "Usage: /start <id>?event=<eventId>");
+    if (!parts[1] || parts[1] === "null" || parts[1] === "undefined") {
+      await sendMessage(chatId, "Usage: /start runner1?event=<eventId>");
       return res.sendStatus(200);
     }
 
-    const param = parts[1];
-
+    let param = parts[1];
     let id = param;
     let eventId = "testEvent";
 
@@ -83,6 +89,11 @@ app.post("/webhook", async (req, res) => {
       const split = param.split("?event=");
       id = split[0];
       eventId = split[1] || "testEvent";
+    }
+
+    if (!isValidId(id)) {
+      await sendMessage(chatId, "Invalid ID. Must start with runnerX or hunterX.");
+      return res.sendStatus(200);
     }
 
     // ---------------------------
@@ -175,7 +186,7 @@ app.post("/webhook", async (req, res) => {
 
     const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
-    if (!runnerId) {
+    if (!isValidId(runnerId)) {
       await sendMessage(chatId, "Only runners can use /live.");
       return res.sendStatus(200);
     }
@@ -197,7 +208,7 @@ app.post("/webhook", async (req, res) => {
 
     const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
-    if (!runnerId) {
+    if (!isValidId(runnerId)) {
       await sendMessage(chatId, "Only runners can use /end.");
       return res.sendStatus(200);
     }
@@ -226,7 +237,7 @@ app.post("/webhook", async (req, res) => {
     // ---------------------------
     const hunterId = Object.keys(hunters).find(id => hunters[id].chatId === chatId);
 
-    if (hunterId) {
+    if (isValidId(hunterId)) {
       const h = hunters[hunterId];
       h.lat = loc.latitude;
       h.lng = loc.longitude;
@@ -243,8 +254,8 @@ app.post("/webhook", async (req, res) => {
     // ---------------------------
     const runnerId = Object.keys(runners).find(id => runners[id].chatId === chatId);
 
-    if (!runnerId) {
-      console.log("Location received but no runner/hunter matched.");
+    if (!isValidId(runnerId)) {
+      console.log("Location received but no valid runner/hunter matched.");
       return res.sendStatus(200);
     }
 
@@ -253,7 +264,6 @@ app.post("/webhook", async (req, res) => {
     r.lng = loc.longitude;
     r.timestamp = Date.now();
 
-    // NEW: write memory for GM map
     await db.ref(`events/${r.eventId}/runners/${runnerId}/memory`).set(payload(r));
 
     if (!r.hasPushedOnce) {
@@ -273,7 +283,6 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
-
 // ---------------------------------------------------------
 // TELEGRAM SEND MESSAGE
 // ---------------------------------------------------------
@@ -291,7 +300,6 @@ async function sendMessage(chatId, text) {
   }
 }
 
-
 // ---------------------------------------------------------
 // FIREBASE WRITE HELPERS
 // ---------------------------------------------------------
@@ -304,11 +312,13 @@ function payload(data) {
 }
 
 async function writeRunnerLatestOnly(id, data) {
+  if (!isValidId(id)) return console.error("Invalid runnerId:", id);
   const eventId = data.eventId;
   await db.ref(`events/${eventId}/runners/${id}/latest`).set(payload(data));
 }
 
 async function writeRunnerLatestAndHistory(id, data) {
+  if (!isValidId(id)) return console.error("Invalid runnerId:", id);
   const eventId = data.eventId;
   const p = payload(data);
   await db.ref(`events/${eventId}/runners/${id}/latest`).set(p);
@@ -316,6 +326,7 @@ async function writeRunnerLatestAndHistory(id, data) {
 }
 
 async function writeRunnerLatestAndHistory_Speedhunt(id, data) {
+  if (!isValidId(id)) return console.error("Invalid runnerId:", id);
   const eventId = data.eventId;
 
   const p = payload(data);
@@ -326,10 +337,10 @@ async function writeRunnerLatestAndHistory_Speedhunt(id, data) {
 }
 
 async function writeHunterLatest(id, data) {
+  if (!isValidId(id)) return console.error("Invalid hunterId:", id);
   const eventId = data.eventId;
   await db.ref(`events/${eventId}/hunters/${id}/latest`).set(payload(data));
 }
-
 
 // ---------------------------------------------------------
 // SYNCHRONIZED INTERVAL SYSTEM
@@ -338,6 +349,8 @@ function runIntervalPush() {
   console.log("Synchronized interval push triggered.");
 
   for (const runnerId in runners) {
+    if (!isValidId(runnerId)) continue;
+
     const r = runners[runnerId];
 
     if (r.lat && r.lng && !r.liveMode) {
@@ -381,7 +394,6 @@ function scheduleNextTick() {
 }
 
 scheduleNextTick();
-
 
 // ---------------------------------------------------------
 // START SERVER
